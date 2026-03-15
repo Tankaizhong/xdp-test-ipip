@@ -131,7 +131,7 @@ docker run -d \
     --hostname ${MY_POD_NAME} \
     --network $BRIDGE_NET \
     --privileged \
-    xdppodlatest
+    xdp-pod:latest
 
 # 获取 pause 容器的 veth 设备名
 PAUSE_VETH=$(docker exec ${MY_POD_NAME}-pause cat /sys/class/net/eth0/iflink)
@@ -152,7 +152,7 @@ docker run -d \
     --name ${MY_POD_NAME}-app1 \
     --hostname ${MY_POD_NAME}-app1 \
     --network container:${MY_POD_NAME}-pause \
-    xdppodlatest \
+    xdp-pod:latest \
     sleep infinity
 
 echo "[OK] ${MY_POD_NAME}-app1 创建完成"
@@ -162,7 +162,7 @@ docker run -d \
     --name ${MY_POD_NAME}-app2 \
     --hostname ${MY_POD_NAME}-app2 \
     --network container:${MY_POD_NAME}-pause \
-    xdppodlatest \
+    xdp-pod:latest \
     sleep infinity
 echo "[OK] ${MY_POD_NAME}-app2 创建完成"
 
