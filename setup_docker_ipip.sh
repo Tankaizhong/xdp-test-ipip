@@ -35,7 +35,7 @@ POD_A_NET="10.0.1.0/24"
 POD_B_NET="10.0.2.0/24"
 
 # Docker 网络名称
-BRIDGE_NET="pod-bridge"
+BRIDGE_NET="xdp-overlay"
 
 # Pod 名称
 POD_A_NAME="pod-a"
@@ -89,7 +89,6 @@ echo "  步骤 1: 清理旧资源"
 echo "=========================================="
 
 docker rm -f ${MY_POD_NAME}-pause ${MY_POD_NAME}-app1 ${MY_POD_NAME}-app2 2>/dev/null || true
-docker network rm $BRIDGE_NET 2>/dev/null || true
 
 # 清理旧的网络设备
 ip link del tunl0 2>/dev/null || true
@@ -108,20 +107,7 @@ ip link set br0 up
 echo "[OK] 网桥 br0 创建完成"
 
 echo "=========================================="
-echo "  步骤 3: 创建 Docker 网络 (bridge 模式)"
-echo "=========================================="
-
-# 创建 Docker bridge 网络
-docker network create \
-    --driver bridge \
-    --subnet=10.0.0.0/30 \
-    --gateway=10.0.0.1 \
-    $BRIDGE_NET
-
-echo "[OK] Docker 网络 $BRIDGE_NET 创建完成"
-
-echo "=========================================="
-echo "  步骤 4: 创建 Pod (pause 容器)"
+echo "  步骤 3: 创建 Pod (pause 容器)"
 echo "=========================================="
 
 # 创建 pause 容器 (Pod 基础容器)
@@ -144,7 +130,7 @@ docker exec ${MY_POD_NAME}-pause ip route add default via 10.0.0.1
 echo "[OK] Pause 容器创建: ${MY_POD_NAME}-pause (${MY_POD_IP})"
 
 echo "=========================================="
-echo "  步骤 5: 创建应用容器 (加入 Pod)"
+echo "  步骤 4: 创建应用容器 (加入 Pod)"
 echo "=========================================="
 
 # app1 容器 - 共享 pause 的网络命名空间
@@ -167,7 +153,7 @@ docker run -d \
 echo "[OK] ${MY_POD_NAME}-app2 创建完成"
 
 echo "=========================================="
-echo "  步骤 6: 配置 IP-in-IP 隧道"
+echo "  步骤 5: 配置 IP-in-IP 隧道"
 echo "=========================================="
 
 # 加载 ipip 模块
@@ -191,7 +177,7 @@ echo "    本地: $CURRENT_IP -> 对端: $PEER_HOST_IP"
 echo "    路由: $PEER_NET via tunl0"
 
 echo "=========================================="
-echo "  步骤 7: 验证配置"
+echo "  步骤 6: 验证配置"
 echo "=========================================="
 
 echo ""
