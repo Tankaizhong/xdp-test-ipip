@@ -131,7 +131,7 @@ docker run -d \
     --hostname ${MY_POD_NAME} \
     --network $BRIDGE_NET \
     --privileged \
-    registry.k8s.io/pause:3.9
+    xdp-pod
 
 # 获取 pause 容器的 veth 设备名
 PAUSE_VETH=$(docker exec ${MY_POD_NAME}-pause cat /sys/class/net/eth0/iflink)
@@ -152,10 +152,9 @@ docker run -d \
     --name ${MY_POD_NAME}-app1 \
     --hostname ${MY_POD_NAME}-app1 \
     --network container:${MY_POD_NAME}-pause \
-    alpine:latest \
+    xdp-pod \
     sleep infinity
 
-docker exec ${MY_POD_NAME}-app1 apk add --no-cache iputils-ping iproute2 2>/dev/null || true
 echo "[OK] ${MY_POD_NAME}-app1 创建完成"
 
 # app2 容器
@@ -163,10 +162,8 @@ docker run -d \
     --name ${MY_POD_NAME}-app2 \
     --hostname ${MY_POD_NAME}-app2 \
     --network container:${MY_POD_NAME}-pause \
-    alpine:latest \
+    xdp-pod \
     sleep infinity
-
-docker exec ${MY_POD_NAME}-app2 apk add --no-cache iputils-ping iproute2 2>/dev/null || true
 echo "[OK] ${MY_POD_NAME}-app2 创建完成"
 
 echo "=========================================="
