@@ -1,0 +1,91 @@
+version: '3.8'
+
+# 跨宿主机 Pod 通信 Demo - Docker 模拟 Pod
+#
+# 使用 Docker 容器模拟 Kubernetes Pod
+# 同一 Pod 内的容器共享网络命名空间 (network_mode: container)
+#
+# 拓扑:
+#   宿主机 A                      宿主机 B
+#   ┌──────────────────┐         ┌──────────────────┐
+#   │   Pod A          │◄───────►│   Pod B          │
+#   │  ┌────────────┐  │  物理   │  ┌────────────┐  │
+#   │  │ container-a1│ │ 网络   │  │ container-b1│ │
+#   │  │ container-a2│ │        │  │ container-b2│ │
+#   │  └────────────┘  │         │  └────────────┘  │
+#   │  10.244.2.2     │         │  10.244.1.2     │
+#   └──────────────────┘         └──────────────────┘
+
+services:
+  # ========== 宿主机 A 上的 Pod ==========
+  # Pod pause 容器 (基础容器，共享网络命名空间)
+  pod-a-pause:
+    image: registry.k8s.io/pause:3.9
+    container_name: pod-a-pause
+    hostname: pod-a
+    networks:
+      pod-net-a:
+        ipv4_address: 10.244.2.2
+    command: ["/pause"]
+
+  # Pod A 的第一个容器
+  container-a1:
+    image: alpine:latest
+    container_name: container-a1
+    hostname: container-a1
+    network_mode: container:pod-a-pause
+    command: ["sleep", "infinity"]
+    depends_on:
+      - pod-a-pause
+
+  # Pod A 的第二个容器 (验证共享网络命名空间)
+  container-a2:
+    image: alpine:latest
+    container_name: container-a2
+    hostname: container-a2
+    network_mode: container:pod-a-pause
+    command: ["sleep", "infinity"]
+    depends_on:
+      - pod-a-pause
+
+  # ========== 宿主机 B 上的 Pod ==========
+  pod-b-pause:
+    image: registry.k8s.io/pause:3.9
+    container_name: pod-b-pause
+    hostname: pod-b
+    networks:
+      pod-net-b:
+        ipv4_address: 10.244.1.2
+    command: ["/pause"]
+
+  container-b1:
+    image: alpine:latest
+    container_name: container-b1
+    hostname: container-b1
+    network_mode: container:pod-b-pause
+    command: ["sleep", "infinity"]
+    depends_on:
+      - pod-b-pause
+
+  container-b2:
+    image: alpine:latest
+    container_name: container-b2
+    hostname: container-b2
+    network_mode: container:pod-b-pause
+    command: ["sleep", "infinity"]
+    depends_on:
+      - pod-b-pause
+
+networks:
+  pod-net-a:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.244.2.0/24
+          gateway: 10.244.2.1
+  pod-net-b:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.244.1.0/24
+          gateway: 10.244.1.1

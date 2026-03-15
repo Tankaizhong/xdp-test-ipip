@@ -1,96 +1,121 @@
-# 跨宿主机 Pod 通信 Demo - IP-in-IP 隧道
+# 跨宿主机 Pod 通信 Demo
 
-## 概述
+本项目包含两种实现跨宿主机 Pod 通信的方式：
 
-本 Demo 展示如何使用 Linux 原生的 IP-in-IP 隧道实现不同宿主机上的 Pod 之间的通信。
+## 方案一: Docker Pod 版本 (推荐)
 
-## 网络拓扑
+使用 Docker 容器模拟 Kubernetes Pod，通过 macvlan 网络实现跨宿主机通信。
+
+### 特性
+
+- 使用 `pause` 容器作为 Pod 基础容器
+- 其他容器共享 pause 容器的网络命名空间 (和 Kubernetes Pod 完全一致)
+- 使用 macvlan 让容器获得独立 IP
+
+### 拓扑
 
 ```
-   宿主机 A (192.168.1.10)              宿主机 B (192.168.1.20)
-   ┌─────────────────────┐              ┌─────────────────────┐
-   │  Pod A1             │              │  Pod B1             │
-   │  10.0.1.2/24        │◄────────────►│  10.0.2.2/24        │
-   │  veth0              │  IP-in-IP    │  veth0              │
-   │        └─► br0 ────┼──────────────┼───br0 ◄─┘           │
-   └─────────────────────┘    隧道      └─────────────────────┘
+宿主机 A (192.168.30.132)           宿主机 B (192.168.30.134)
+┌─────────────────────────┐         ┌─────────────────────────┐
+│ Pod A (10.244.2.2)     │◄────────►│ Pod B (10.244.1.2)    │
+│  ├── pause             │  macvlan │  ├── pause             │
+│  ├── app-a1            │          │  ├── app-b1            │
+│  └── app-a2            │          │  └── app-b2            │
+└─────────────────────────┘          └─────────────────────────┘
 ```
 
-## 工作原理
-
-1. **网桥 (Bridge)**: 每个宿主机创建 Linux 网桥 `br0`，连接本地 Pod 的 veth 设备
-2. **IP-in-IP 隧道**: 创建点对点隧道，封装 Pod 流量
-3. **路由**: 通过路由表将目标 Pod 网段的流量引导到隧道
-
-## 前置要求
-
-- 两台 Linux 宿主机 (物理机或虚拟机)
-- 需要 root 权限
-- 内核支持 IP-in-IP (`modprobe ipip`)
-- 两台宿主机之间网络互通
-
-## 快速开始
-
-### 1. 修改配置
-
-编辑 `setup_ipip.sh`，根据你的实际环境修改：
+### 快速开始
 
 ```bash
-HOST_A_IP="192.168.1.10"  # 宿主机 A 的内网 IP
-HOST_B_IP="192.168.1.20"  # 宿主机 B 的内网 IP
+# 宿主机 A
+sudo ./setup_docker_pod.sh
+
+# 宿主机 B
+sudo ./setup_docker_pod.sh
+
+# 测试
+docker exec pod-a-app1 ping -c 3 10.244.1.2
+
+# 清理
+sudo ./cleanup_docker_pod.sh
 ```
 
-### 2. 在两台宿主机上执行
-
-**宿主机 A:**
-```bash
-sudo chmod +x setup_ipip.sh
-sudo ./setup_ipip.sh
-```
-
-**宿主机 B:**
-```bash
-sudo chmod +x setup_ipip.sh
-sudo ./setup_ipip.sh
-```
-
-### 3. 测试连通性
-
-```bash
-# 在宿主机 A 上
-sudo ./test_connectivity.sh
-ping -c 3 10.0.2.2   # 测试到宿主机 B 的 Pod
-
-# 在宿主机 B 上
-ping -c 3 10.0.1.2   # 测试到宿主机 A 的 Pod
-```
-
-### 4. 清理
-
-```bash
-sudo ./cleanup.sh
-```
-
-## 文件说明
+### 文件
 
 | 文件 | 说明 |
 |------|------|
-| `setup_ipip.sh` | 主配置脚本，创建网络命名空间、网桥、隧道 |
-| `test_connectivity.sh` | 测试脚本，验证连通性 |
-| `cleanup.sh` | 清理脚本，移除所有创建的网络设备 |
+| `setup_docker_pod.sh` | 主配置脚本 |
+| `test_docker_pod.sh` | 测试脚本 |
+| `cleanup_docker_pod.sh` | 清理脚本 |
+| `docker-compose-pod.yml` | Docker Compose 版本 |
+
+---
+
+## 方案二: IP-in-IP 隧道版本
+
+使用 Linux 原生的 IP-in-IP 隧道实现跨宿主机通信。
+
+### 拓扑
+
+```
+宿主机 A              宿主机 B
+┌─────────────────────┐ ┌─────────────────────┐
+│ Pod A1              │◄─── IP-in-IP ───►│ Pod B1
+│ 10.0.1.2/24        │    隧道          │ 10.0.2.2/24
+└─────────────────────┘ └─────────────────────┘
+```
+
+### 快速开始
+
+```bash
+# 修改配置
+HOST_A_IP="192.168.1.10"  # 宿主机 A
+HOST_B_IP="192.168.1.20"  # 宿主机 B
+
+# 两台宿主机分别执行
+sudo ./setup_ipip.sh
+
+# 测试
+ping -c 3 10.0.2.2
+```
+
+### 文件
+
+| 文件 | 说明 |
+|------|------|
+| `setup_ipip.sh` | 主配置脚本 |
+| `test_connectivity.sh` | 测试脚本 |
+| `cleanup.sh` | 清理脚本 |
+
+---
 
 ## 常见问题
 
-### Q: 通信失败
-A: 检查以下内容：
-1. 两台宿主机之间是否可以 ping 通
-2. 防火墙是否允许 IP 协议 4 (IP-in-IP)
-3. 确认两台宿主机都运行了配置脚本
+### Docker Pod 版本
 
-### Q: 找不到 tunl0 设备
-A: 确认 ipip 内核模块已加载：`sudo modprobe ipip`
+**Q: 跨主机通信失败**
+A: 检查物理交换机是否允许 macvlan，可能需要：
+```bash
+sudo ip link set <interface> promisc on
+```
 
-## 注意事项
+**Q: pause 镜像拉取失败**
+A: 使用国内镜像：
+```bash
+docker pull mirror.gcr.io/pause:3.9
+# 或
+docker pull registry.access.redhat.com/pause:latest
+```
 
-- 本 Demo 仅用于学习和测试，生产环境建议使用 Flannel、Calico、Cilium 等成熟的网络方案
-- IP-in-IP 只能用于 IPv4，如需 IPv6 考虑使用 IP6IP6
+### IP-in-IP 版本
+
+**Q: 找不到 tunl0 设备**
+A: 加载内核模块：`sudo modprobe ipip`
+
+**Q: 防火墙阻止**
+A: 允许 IP 协议 4：`sudo iptables -A INPUT -p 4 -j ACCEPT`
+
+## 注意
+
+- Demo 仅用于学习测试
+- 生产环境建议使用 Flannel、Calico、Cilium 等成熟方案
