@@ -28,11 +28,11 @@ set -e
 HOST_A_IP="192.168.30.132"
 HOST_B_IP="192.168.30.134"
 
-# Pod 网络配置
-POD_A_IP="10.0.1.2"
-POD_B_IP="10.0.2.2"
-POD_A_NET="10.0.1.0/24"
-POD_B_NET="10.0.2.0/24"
+# Pod 网络配置 (xdp-overlay 网段)
+POD_A_IP="10.244.1.2"
+POD_B_IP="10.244.2.2"
+POD_A_NET="10.244.1.0/24"
+POD_B_NET="10.244.2.0/24"
 
 # Docker 网络名称
 BRIDGE_NET="xdp-overlay"
@@ -73,8 +73,8 @@ else
 fi
 
 echo ""
-echo "[*] 本地 Pod: $MY_POD_IP ($MY_POD_NAME)"
-echo "[*] 对端 Pod: $PEER_POD_IP ($PEER_POD_NAME)"
+echo "[*] 本地 Pod: $MY_POD_NAME"
+echo "[*] 对端 Pod: $PEER_POD_NAME"
 echo "[*] 对端宿主机: $PEER_HOST_IP"
 echo ""
 
@@ -99,9 +99,8 @@ echo "=========================================="
 echo "  步骤 2: 创建 Linux 网桥"
 echo "=========================================="
 
-# 创建网桥
+# 创建网桥 (用于 IP-in-IP 隧道对接)
 ip link add br0 type bridge
-ip addr add 10.0.0.1/30 dev br0  # 隧道对接地址
 ip link set br0 up
 
 echo "[OK] 网桥 br0 创建完成"
@@ -119,15 +118,11 @@ docker run -d \
     --privileged \
     xdp-pod:latest
 
-# 获取 pause 容器的 veth 设备名
-PAUSE_VETH=$(docker exec ${MY_POD_NAME}-pause cat /sys/class/net/eth0/iflink)
-echo "[*] Pause 容器网络接口: eth0"
+# 获取容器分配的 IP
+CONTAINER_IP=$(docker exec ${MY_POD_NAME}-pause hostname -I | awk '{print $1}')
+echo "[*] Pause 容器 IP: $CONTAINER_IP"
 
-# 设置 Pod IP
-docker exec ${MY_POD_NAME}-pause ip addr add ${MY_POD_IP}/24 dev eth0
-docker exec ${MY_POD_NAME}-pause ip route add default via 10.0.0.1
-
-echo "[OK] Pause 容器创建: ${MY_POD_NAME}-pause (${MY_POD_IP})"
+echo "[OK] Pause 容器创建: ${MY_POD_NAME}-pause"
 
 echo "=========================================="
 echo "  步骤 4: 创建应用容器 (加入 Pod)"
@@ -209,10 +204,10 @@ echo ""
 echo "1. 在两台宿主机都运行脚本后，测试跨主机通信:"
 echo ""
 echo "   # 宿主机 A (容器内)"
-echo "   docker exec pod-a-app1 ping -c 3 $PEER_POD_IP"
+echo "   docker exec pod-a-app1 ping -c 3 10.244.2.2"
 echo ""
 echo "   # 宿主机 B (容器内)"
-echo "   docker exec pod-b-app1 ping -c 3 $PEER_POD_IP"
+echo "   docker exec pod-b-app1 ping -c 3 10.244.1.2"
 echo ""
 echo "2. 查看隧道统计:"
 echo "   ip -s tunnel show tunl0"
