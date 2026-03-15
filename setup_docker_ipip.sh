@@ -16,7 +16,7 @@
 #   │           └────┬────────┘      │           └────┬────────┘   │
 #   └────────────────│──────────────┴────────────────│──────────────
 #                    │        IP-in-IP 隧道           │
-#              tunl0 │◄────────────────────────────►│ tunl0
+#              ipip0 │◄────────────────────────────►│ ipip0
 #                    └────────────────────────────────┘
 #
 # Pod 内通信: 同一 Pod 内容器共享网络命名空间 (network_mode: container)
@@ -151,22 +151,20 @@ echo "=========================================="
 # 加载 ipip 模块
 modprobe ipip 2>/dev/null || true
 
-# 删除旧隧道配置
-ip tunnel del tunl0 2>/dev/null || true
-
-# 创建 IP-in-IP 隧道 (使用系统预定义的 tunl0)
-ip tunnel add tunl0 mode ipip remote $PEER_HOST_IP local $CURRENT_IP
-ip link set tunl0 up
+# 创建自定义 IP-in-IP 隧道
+ip tunnel del ipip0 2>/dev/null || true
+ip tunnel add ipip0 mode ipip remote $PEER_HOST_IP local $CURRENT_IP
+ip link set ipip0 up
 
 # 添加路由 - 对端 Pod 网段走隧道
-ip route add $PEER_NET dev tunl0
+ip route add $PEER_NET dev ipip0
 
 # 启用 IP 转发
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
 echo "[OK] IP-in-IP 隧道创建完成"
 echo "    本地: $CURRENT_IP -> 对端: $PEER_HOST_IP"
-echo "    路由: $PEER_NET via tunl0"
+echo "    路由: $PEER_NET via ipip0"
 
 echo "=========================================="
 echo "  步骤 6: 验证配置"
@@ -207,7 +205,7 @@ echo "   # 宿主机 B (容器内)"
 echo "   docker exec pod-b-app1 ping -c 3 10.244.1.2"
 echo ""
 echo "2. 查看隧道统计:"
-echo "   ip -s tunnel show tunl0"
+echo "   ip -s tunnel show ipip0"
 echo ""
 echo "3. 清理:"
 echo "   ./cleanup_ipip.sh"

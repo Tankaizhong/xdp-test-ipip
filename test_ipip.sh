@@ -36,7 +36,7 @@ ip addr show br0 2>/dev/null | grep "inet " && echo "[OK] br0 正常" || echo "[
 # 3. 检查隧道
 echo ""
 echo "=== 3. 检查 IP-in-IP 隧道 ==="
-ip tunnel show tunl0 2>/dev/null && echo "[OK] 隧道正常" || echo "[!] 隧道异常"
+ip tunnel show ipip0 2>/dev/null && echo "[OK] 隧道正常" || echo "[!] 隧道异常"
 
 # 4. 检查路由
 echo ""
@@ -66,7 +66,7 @@ if docker exec ${MY_POD}-app1 ping -c 3 -W 3 $PEER_IP &>/dev/null; then
 
     echo ""
     echo "[*] 隧道统计:"
-    ip -s tunnel show tunl0
+    ip -s tunnel show ipip0
 else
     echo ""
     echo "=========================================="

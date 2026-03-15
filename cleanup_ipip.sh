@@ -27,7 +27,7 @@ ip link del br0 2>/dev/null || true
 
 # 删除 IP-in-IP 隧道配置
 echo "[*] 删除 IP-in-IP 隧道..."
-ip tunnel del tunl0 2>/dev/null || true
+ip tunnel del ipip0 2>/dev/null || true
 
 echo ""
 echo "[OK] 清理完成"
