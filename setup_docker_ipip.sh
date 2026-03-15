@@ -141,7 +141,6 @@ echo "[OK] ${MY_POD_NAME}-app1 创建完成"
 docker run -d \
     --name ${MY_POD_NAME}-app2 \
     --network container:${MY_POD_NAME}-pause \
-    --network container:${MY_POD_NAME}-pause \
     xdp-pod:latest \
     sleep infinity
 echo "[OK] ${MY_POD_NAME}-app2 创建完成"
@@ -153,8 +152,10 @@ echo "=========================================="
 # 加载 ipip 模块
 modprobe ipip 2>/dev/null || true
 
-# 删除旧隧道
+# 删除旧隧道 (确保清理干净)
+ip link del tunl0 2>/dev/null || true
 ip tunnel del tunl0 2>/dev/null || true
+sleep 1
 
 # 创建 IP-in-IP 隧道
 ip tunnel add tunl0 mode ipip remote $PEER_HOST_IP local $CURRENT_IP
