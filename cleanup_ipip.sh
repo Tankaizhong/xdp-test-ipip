@@ -25,9 +25,8 @@ docker network rm pod-bridge 2>/dev/null || true
 echo "[*] 删除网桥 br0..."
 ip link del br0 2>/dev/null || true
 
-# 删除 IP-in-IP 隧道
+# 删除 IP-in-IP 隧道配置
 echo "[*] 删除 IP-in-IP 隧道..."
-ip link del tunl0 2>/dev/null || true
 ip tunnel del tunl0 2>/dev/null || true
 
 echo ""

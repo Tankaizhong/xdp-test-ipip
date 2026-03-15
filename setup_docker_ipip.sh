@@ -91,7 +91,6 @@ echo "=========================================="
 docker rm -f ${MY_POD_NAME}-pause ${MY_POD_NAME}-app1 ${MY_POD_NAME}-app2 2>/dev/null || true
 
 # 清理旧的网络设备
-ip tunnel del tunl0 2>/dev/null || true
 ip link del br0 2>/dev/null || true
 ip link del veth-pod 2>/dev/null || true
 
@@ -152,12 +151,10 @@ echo "=========================================="
 # 加载 ipip 模块
 modprobe ipip 2>/dev/null || true
 
-# 删除旧隧道 (确保清理干净)
-ip link del tunl0 2>/dev/null || true
+# 删除旧隧道配置
 ip tunnel del tunl0 2>/dev/null || true
-sleep 1
 
-# 创建 IP-in-IP 隧道
+# 创建 IP-in-IP 隧道 (使用系统预定义的 tunl0)
 ip tunnel add tunl0 mode ipip remote $PEER_HOST_IP local $CURRENT_IP
 ip link set tunl0 up
 
