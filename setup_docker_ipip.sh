@@ -91,7 +91,7 @@ echo "=========================================="
 docker rm -f ${MY_POD_NAME}-pause ${MY_POD_NAME}-app1 ${MY_POD_NAME}-app2 2>/dev/null || true
 
 # 清理旧的网络设备
-ip link del tunl0 2>/dev/null || true
+ip tunnel del tunl0 2>/dev/null || true
 ip link del br0 2>/dev/null || true
 ip link del veth-pod 2>/dev/null || true
 
