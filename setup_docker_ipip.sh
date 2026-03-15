@@ -119,7 +119,7 @@ docker run -d \
     xdp-pod:latest
 
 # 获取容器分配的 IP
-CONTAINER_IP=$(docker exec ${MY_POD_NAME}-pause hostname -I | awk '{print $1}')
+CONTAINER_IP=$(docker exec ${MY_POD_NAME}-pause ip addr show eth0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
 echo "[*] Pause 容器 IP: $CONTAINER_IP"
 
 echo "[OK] Pause 容器创建: ${MY_POD_NAME}-pause"
@@ -131,7 +131,6 @@ echo "=========================================="
 # app1 容器 - 共享 pause 的网络命名空间
 docker run -d \
     --name ${MY_POD_NAME}-app1 \
-    --hostname ${MY_POD_NAME}-app1 \
     --network container:${MY_POD_NAME}-pause \
     xdp-pod:latest \
     sleep infinity
@@ -141,7 +140,7 @@ echo "[OK] ${MY_POD_NAME}-app1 创建完成"
 # app2 容器
 docker run -d \
     --name ${MY_POD_NAME}-app2 \
-    --hostname ${MY_POD_NAME}-app2 \
+    --network container:${MY_POD_NAME}-pause \
     --network container:${MY_POD_NAME}-pause \
     xdp-pod:latest \
     sleep infinity
