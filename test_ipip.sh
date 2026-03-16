@@ -10,11 +10,11 @@ CURRENT_IP=$(hostname -I | awk '{print $1}')
 if [[ "$CURRENT_IP" == "192.168.30.132" ]]; then
     MY_POD="pod-a"
     PEER_POD="pod-b"
-    PEER_IP="10.0.2.2"
+    PEER_IP="10.244.2.2"
 else
     MY_POD="pod-b"
     PEER_POD="pod-a"
-    PEER_IP="10.0.1.2"
+    PEER_IP="10.244.1.2"
 fi
 
 echo "[*] 当前宿主机: $CURRENT_IP"
@@ -41,7 +41,7 @@ ip tunnel show ipip0 2>/dev/null && echo "[OK] 隧道正常" || echo "[!] 隧道
 # 4. 检查路由
 echo ""
 echo "=== 4. 检查路由 ==="
-ip route | grep "10.0."
+ip route | grep "10.244."
 
 # 5. 测试 Pod 内通信
 echo ""
