@@ -1,6 +1,10 @@
 #!/bin/bash
 # 测试 Docker Pod + IP-in-IP 通信
 
+if [ "$EUID" -ne 0 ]; then
+    exec sudo "$0" "$@"
+fi
+
 echo "=========================================="
 echo "  Docker Pod + IP-in-IP 通信测试"
 echo "=========================================="

@@ -19,6 +19,11 @@
 
 set -e
 
+# 确保以 root 运行
+if [ "$EUID" -ne 0 ]; then
+    exec sudo "$0" "$@"
+fi
+
 #=================== 配置 ===================
 HOST_A_IP="192.168.30.132"
 HOST_B_IP="192.168.30.134"
@@ -66,7 +71,30 @@ if ! docker info &>/dev/null; then
 fi
 
 echo "=========================================="
-echo "  步骤 1: 清理旧资源"
+echo "  步骤 1: 关闭所有干扰"
+echo "=========================================="
+
+# iptables 全部放行
+iptables -F
+iptables -X
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+iptables -t nat -F
+iptables -t mangle -F
+
+# 关闭 rp_filter
+sysctl -w net.ipv4.conf.all.rp_filter=0
+sysctl -w net.ipv4.conf.default.rp_filter=0
+
+# 关闭 firewalld / ufw
+systemctl stop firewalld 2>/dev/null || true
+sudo ufw disable 2>/dev/null || true
+
+echo "[OK] 防火墙/iptables 已清空"
+
+echo "=========================================="
+echo "  步骤 2: 清理旧资源"
 echo "=========================================="
 
 docker rm -f $MY_POD 2>/dev/null || true
@@ -74,7 +102,7 @@ ip link del br0 2>/dev/null || true
 ip tunnel del ipip0 2>/dev/null || true
 
 echo "=========================================="
-echo "  步骤 2: 创建网桥 br0"
+echo "  步骤 3: 创建网桥 br0"
 echo "=========================================="
 
 ip link add br0 type bridge
@@ -83,7 +111,7 @@ ip link set br0 up
 echo "[OK] br0 up, IP: ${MY_GW}/24"
 
 echo "=========================================="
-echo "  步骤 3: 启动 Pod 容器"
+echo "  步骤 4: 启动 Pod 容器"
 echo "=========================================="
 
 # 用 --network none，后续手动配置网络
@@ -97,7 +125,7 @@ docker run -d \
 echo "[OK] $MY_POD 启动完成"
 
 echo "=========================================="
-echo "  步骤 4: 连接容器到 br0 (veth pair)"
+echo "  步骤 5: 连接容器到 br0 (veth pair)"
 echo "=========================================="
 
 # 获取容器 PID
@@ -124,7 +152,7 @@ nsenter -t $PID -n -- ip route add default via $MY_GW
 echo "[OK] eth0 配置完成: ${MY_POD_IP}/24, gw ${MY_GW}"
 
 echo "=========================================="
-echo "  步骤 5: 配置 IP-in-IP 隧道"
+echo "  步骤 6: 配置 IP-in-IP 隧道"
 echo "=========================================="
 
 modprobe ipip 2>/dev/null || true
@@ -137,6 +165,9 @@ ip route add $PEER_NET dev ipip0
 
 # 启用 IP 转发
 echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# Pod 访问外部网络时 SNAT 为宿主机 IP（对端 Pod 子网不做 NAT，走隧道）
+iptables -t nat -A POSTROUTING -s $MY_NET ! -d 10.244.0.0/16 -o ens33 -j MASQUERADE
 
 echo "[OK] ipip0 up: $CURRENT_IP <-> $PEER_HOST_IP"
 echo "[OK] 路由: $PEER_NET via ipip0"
