@@ -20,10 +20,10 @@ fi
 echo "[*] 删除容器 $POD_NAME..."
 docker rm -f $POD_NAME 2>/dev/null || true
 
-echo "[*] 删除 veth-pod..."
-ip link del veth-pod 2>/dev/null || true
+echo "[*] 删除 veth-host..."
+ip link del veth-host 2>/dev/null || true
 
-echo "[*] 删除网桥 br0..."
+echo "[*] 删除网桥 br0 (如有)..."
 ip link del br0 2>/dev/null || true
 
 echo "[*] 清理 iptables MASQUERADE..."
