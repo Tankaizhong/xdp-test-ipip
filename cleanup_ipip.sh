@@ -13,19 +13,15 @@ else
     POD_NAME="pod-b"
 fi
 
-# 删除容器
-echo "[*] 删除容器..."
-docker rm -f ${POD_NAME}-pause ${POD_NAME}-app1 ${POD_NAME}-app2 2>/dev/null || true
+echo "[*] 删除容器 $POD_NAME..."
+docker rm -f $POD_NAME 2>/dev/null || true
 
-# 删除 Docker 网络
-echo "[*] 删除 Docker 网络..."
-docker network rm pod-bridge 2>/dev/null || true
+echo "[*] 删除 veth-pod..."
+ip link del veth-pod 2>/dev/null || true
 
-# 删除 Linux 网桥
 echo "[*] 删除网桥 br0..."
 ip link del br0 2>/dev/null || true
 
-# 删除 IP-in-IP 隧道配置
 echo "[*] 删除 IP-in-IP 隧道..."
 ip tunnel del ipip0 2>/dev/null || true
 

@@ -1,26 +1,21 @@
 #!/bin/bash
-# Docker Pod 跨宿主机通信 - IP-in-IP 隧道封装
-#
-# 使用 Docker 容器模拟 Kubernetes Pod，通过 IP-in-IP 隧道通信
+# Docker Pod 跨宿主机通信 - IP-in-IP 隧道
 #
 # 拓扑:
-#   宿主机 A (192.168.30.132)      宿主机 B (192.168.30.134)
-#   ┌─────────────────────────┐      ┌─────────────────────────┐
-#   │ Pod A                   │      │ Pod B                   │
-#   │  ┌──────────────────┐   │      │  ┌──────────────────┐   │
-#   │  │ pause (10.0.1.2)│   │◄────►│  │ pause (10.0.2.2)│   │
-#   │  │ app1             │   │ IPIP │  │ app1             │   │
-#   │  │ app2             │   │ 隧道 │  │ app2             │   │
-#   │  └────────┬─────────┘   │      │  └────────┬─────────┘   │
-#   │           │ br0         │      │           │ br0         │
-#   │           └────┬────────┘      │           └────┬────────┘   │
-#   └────────────────│──────────────┴────────────────│──────────────
-#                    │        IP-in-IP 隧道           │
-#              ipip0 │◄────────────────────────────►│ ipip0
-#                    └────────────────────────────────┘
+#   宿主机 A (192.168.30.132)          宿主机 B (192.168.30.134)
+#   ┌──────────────────────────┐        ┌──────────────────────────┐
+#   │ br0: 10.244.1.1/24       │        │ br0: 10.244.2.1/24       │
+#   │  └─ veth-pod             │        │  └─ veth-pod             │
+#   │      └─ [pod-a]          │        │      └─ [pod-b]          │
+#   │         eth0:10.244.1.2  │        │         eth0:10.244.2.2  │
+#   │                          │        │                          │
+#   │  ipip0 ──────────────────────────── ipip0                   │
+#   │  route: 10.244.2.0/24 ──► ipip0   route: 10.244.1.0/24 ──► ipip0 │
+#   └──────────────────────────┘        └──────────────────────────┘
 #
-# Pod 内通信: 同一 Pod 内容器共享网络命名空间 (network_mode: container)
-# Pod 间通信: 通过 IP-in-IP 隧道封装
+# 数据路径 (Pod A → Pod B):
+#   容器A(10.244.1.2) → br0(gw) → 内核路由 → ipip0封装
+#   → 物理网络 → ipip0解封 → 内核路由 → br0 → veth → 容器B(10.244.2.2)
 
 set -e
 
@@ -28,57 +23,43 @@ set -e
 HOST_A_IP="192.168.30.132"
 HOST_B_IP="192.168.30.134"
 
-# Pod 网络配置 (xdp-overlay 网段)
 POD_A_IP="10.244.1.2"
 POD_B_IP="10.244.2.2"
+POD_A_GW="10.244.1.1"
+POD_B_GW="10.244.2.1"
 POD_A_NET="10.244.1.0/24"
 POD_B_NET="10.244.2.0/24"
-
-# Docker 网络名称
-BRIDGE_NET="xdp-overlay"
-
-# Pod 名称
-POD_A_NAME="pod-a"
-POD_B_NAME="pod-b"
 #===========================================
 
 echo "=========================================="
 echo "  Docker Pod 跨宿主机通信 - IP-in-IP"
 echo "=========================================="
 
-# 检测当前主机IP
 CURRENT_IP=$(hostname -I | awk '{print $1}')
 echo "[*] 当前宿主机: $CURRENT_IP"
 
-# 判断角色
 if [ "$CURRENT_IP" = "$HOST_A_IP" ]; then
-    echo "[*] 角色: 宿主机 A (Pod A)"
+    MY_POD="pod-a"
     MY_POD_IP=$POD_A_IP
-    PEER_POD_IP=$POD_B_IP
-    MY_POD_NAME=$POD_A_NAME
-    PEER_POD_NAME=$POD_B_NAME
+    MY_GW=$POD_A_GW
+    MY_NET=$POD_A_NET
     PEER_HOST_IP=$HOST_B_IP
     PEER_NET=$POD_B_NET
 elif [ "$CURRENT_IP" = "$HOST_B_IP" ]; then
-    echo "[*] 角色: 宿主机 B (Pod B)"
+    MY_POD="pod-b"
     MY_POD_IP=$POD_B_IP
-    PEER_POD_IP=$POD_A_IP
-    MY_POD_NAME=$POD_B_NAME
-    PEER_POD_NAME=$POD_A_NAME
+    MY_GW=$POD_B_GW
+    MY_NET=$POD_B_NET
     PEER_HOST_IP=$HOST_A_IP
     PEER_NET=$POD_A_NET
 else
-    echo "[!] 错误: 当前IP ($CURRENT_IP) 不匹配"
+    echo "[!] 错误: 当前IP ($CURRENT_IP) 不在配置中"
     exit 1
 fi
 
-echo ""
-echo "[*] 本地 Pod: $MY_POD_NAME"
-echo "[*] 对端 Pod: $PEER_POD_NAME"
-echo "[*] 对端宿主机: $PEER_HOST_IP"
+echo "[*] Pod: $MY_POD ($MY_POD_IP), 对端宿主机: $PEER_HOST_IP"
 echo ""
 
-# 检查 Docker
 if ! docker info &>/dev/null; then
     echo "[!] Docker 未运行"
     exit 1
@@ -88,125 +69,93 @@ echo "=========================================="
 echo "  步骤 1: 清理旧资源"
 echo "=========================================="
 
-docker rm -f ${MY_POD_NAME}-pause ${MY_POD_NAME}-app1 ${MY_POD_NAME}-app2 2>/dev/null || true
-
-# 清理旧的网络设备
+docker rm -f $MY_POD 2>/dev/null || true
 ip link del br0 2>/dev/null || true
-ip link del veth-pod 2>/dev/null || true
+ip tunnel del ipip0 2>/dev/null || true
 
 echo "=========================================="
-echo "  步骤 2: 创建 Linux 网桥"
+echo "  步骤 2: 创建网桥 br0"
 echo "=========================================="
 
-# 创建网桥 (用于 IP-in-IP 隧道对接)
 ip link add br0 type bridge
+ip addr add ${MY_GW}/24 dev br0
 ip link set br0 up
-
-echo "[OK] 网桥 br0 创建完成"
+echo "[OK] br0 up, IP: ${MY_GW}/24"
 
 echo "=========================================="
-echo "  步骤 3: 创建 Pod (pause 容器)"
+echo "  步骤 3: 启动 Pod 容器"
 echo "=========================================="
 
-# 创建 pause 容器 (Pod 基础容器)
-# 使用 host 网络，然后通过 veth 连接到网桥
+# 用 --network none，后续手动配置网络
 docker run -d \
-    --name ${MY_POD_NAME}-pause \
-    --hostname ${MY_POD_NAME} \
-    --network $BRIDGE_NET \
+    --name $MY_POD \
+    --network none \
     --privileged \
-    xdp-pod:latest
-
-# 获取容器分配的 IP
-CONTAINER_IP=$(docker exec ${MY_POD_NAME}-pause ip addr show eth0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-echo "[*] Pause 容器 IP: $CONTAINER_IP"
-
-echo "[OK] Pause 容器创建: ${MY_POD_NAME}-pause"
-
-echo "=========================================="
-echo "  步骤 4: 创建应用容器 (加入 Pod)"
-echo "=========================================="
-
-# app1 容器 - 共享 pause 的网络命名空间
-docker run -d \
-    --name ${MY_POD_NAME}-app1 \
-    --network container:${MY_POD_NAME}-pause \
     xdp-pod:latest \
     sleep infinity
 
-echo "[OK] ${MY_POD_NAME}-app1 创建完成"
+echo "[OK] $MY_POD 启动完成"
 
-# app2 容器
-docker run -d \
-    --name ${MY_POD_NAME}-app2 \
-    --network container:${MY_POD_NAME}-pause \
-    xdp-pod:latest \
-    sleep infinity
-echo "[OK] ${MY_POD_NAME}-app2 创建完成"
+echo "=========================================="
+echo "  步骤 4: 连接容器到 br0 (veth pair)"
+echo "=========================================="
+
+# 获取容器 PID
+PID=$(docker inspect --format '{{.State.Pid}}' $MY_POD)
+echo "[*] 容器 PID: $PID"
+
+# 创建 veth pair: 宿主机侧 veth-pod <-> 容器侧 veth-ctr
+ip link add veth-pod type veth peer name veth-ctr
+
+# 宿主机侧加入 br0
+ip link set veth-pod master br0
+ip link set veth-pod up
+
+# 容器侧移入容器的 netns
+ip link set veth-ctr netns $PID
+
+# 在容器 netns 内配置网络
+nsenter -t $PID -n -- ip link set veth-ctr name eth0
+nsenter -t $PID -n -- ip addr add ${MY_POD_IP}/24 dev eth0
+nsenter -t $PID -n -- ip link set eth0 up
+nsenter -t $PID -n -- ip link set lo up
+nsenter -t $PID -n -- ip route add default via $MY_GW
+
+echo "[OK] eth0 配置完成: ${MY_POD_IP}/24, gw ${MY_GW}"
 
 echo "=========================================="
 echo "  步骤 5: 配置 IP-in-IP 隧道"
 echo "=========================================="
 
-# 加载 ipip 模块
 modprobe ipip 2>/dev/null || true
 
-# 创建自定义 IP-in-IP 隧道
-ip tunnel del ipip0 2>/dev/null || true
 ip tunnel add ipip0 mode ipip remote $PEER_HOST_IP local $CURRENT_IP
 ip link set ipip0 up
 
-# 添加路由 - 对端 Pod 网段走隧道
+# 对端 Pod 网段走隧道
 ip route add $PEER_NET dev ipip0
 
 # 启用 IP 转发
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
-echo "[OK] IP-in-IP 隧道创建完成"
-echo "    本地: $CURRENT_IP -> 对端: $PEER_HOST_IP"
-echo "    路由: $PEER_NET via ipip0"
-
-echo "=========================================="
-echo "  步骤 6: 验证配置"
-echo "=========================================="
-
-echo ""
-echo "[*] Pod 网络信息:"
-docker exec ${MY_POD_NAME}-app1 ip addr show eth0 | grep inet
-
-echo ""
-echo "[*] 路由信息:"
-ip route
-
-echo ""
-echo "[*] 隧道信息:"
-ip tunnel show
+echo "[OK] ipip0 up: $CURRENT_IP <-> $PEER_HOST_IP"
+echo "[OK] 路由: $PEER_NET via ipip0"
 
 echo ""
 echo "=========================================="
 echo "  配置完成!"
 echo "=========================================="
-
 echo ""
-echo "[*] Pod 容器列表:"
-docker ps --format "table {{.Names}}\t{{.Status}}" | grep $MY_POD_NAME
-
+echo "[*] 容器网络:"
+nsenter -t $PID -n -- ip addr show eth0
 echo ""
-echo "=========================================="
-echo "  测试步骤:"
-echo "=========================================="
+echo "[*] 宿主机路由:"
+ip route
 echo ""
-echo "1. 在两台宿主机都运行脚本后，测试跨主机通信:"
+echo "[*] 隧道:"
+ip tunnel show ipip0
 echo ""
-echo "   # 宿主机 A (容器内)"
-echo "   docker exec pod-a-app1 ping -c 3 10.244.2.2"
+echo "测试命令:"
+echo "  docker exec $MY_POD ping -c 3 $([ "$MY_POD" = "pod-a" ] && echo $POD_B_IP || echo $POD_A_IP)"
 echo ""
-echo "   # 宿主机 B (容器内)"
-echo "   docker exec pod-b-app1 ping -c 3 10.244.1.2"
-echo ""
-echo "2. 查看隧道统计:"
-echo "   ip -s tunnel show ipip0"
-echo ""
-echo "3. 清理:"
-echo "   ./cleanup_ipip.sh"
-echo ""
+echo "清理: ./cleanup_ipip.sh"
